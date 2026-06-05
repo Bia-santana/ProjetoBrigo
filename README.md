@@ -54,4 +54,64 @@ Modelagem robusta para garantir a consistência dos dados. O banco armazena:
 ---
 
 ## 📊 Arquitetura e Banco de Dados
+1.usuarios
 
+Diferencia quem está acessando o sistema para abrir a tela correta.
+
+    id (INT, PK)
+
+    username (VARCHAR)
+
+    senha (VARCHAR)
+
+    perfil (VARCHAR) – Exemplos: 'CHEF' ou 'CLIENTE'. (O Java lê isso no login para decidir qual tela abrir).
+
+2.cardapio
+
+Alimenta a tela do cliente e serve de base para os preços.
+
+    id (INT, PK)
+
+    nome (VARCHAR) – Ex: "Slice Cake de Red Velvet"
+
+    valor (DECIMAL)
+
+    foto_path (VARCHAR) – O caminho/diretório onde a imagem está salva (ex: "/imagens/red_velvet.png"). Evite salvar a imagem direto no banco para não deixá-lo lento.
+
+3.pedidos (Fluxo de Pedidos)
+
+Controla o ciclo de vida do pedido. O Chef altera essa tabela, e o Cliente apenas assiste.
+
+    id (INT, PK)
+
+    cliente_nome (VARCHAR) – Para aparecer no telão de retirada.
+
+    status (VARCHAR) – Estritamente: 'RECEBIDO', 'EM_PREPARO' ou 'PRONTO'.
+
+    data_hora (TIMESTAMP)
+
+4.itens_pedido
+
+Faz a ligação de quais doces estão dentro daquele pedido.
+
+    id (INT, PK)
+
+    pedido_id (INT, FK -> pedidos.id)
+
+    cardapio_id (INT, FK -> cardapio.id)
+
+    quantidade (INT)
+
+5.vendas (Fluxo de Vendas)
+
+Registra a movimentação monetária. Toda vez que um pedido é finalizado, uma linha nasce aqui.
+
+    id (INT, PK)
+
+    pedido_id (INT, FK -> pedidos.id)
+
+    valor_total (DECIMAL)
+
+    metodo_pagamento (VARCHAR) – Ex: 'PIX', 'Cartão'.
+
+    data_venda (TIMESTAMP)
