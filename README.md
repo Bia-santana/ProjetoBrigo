@@ -52,6 +52,28 @@ Modelagem robusta para garantir a consistência dos dados. O banco armazena:
 * [ ] **Relatório de Desempenho:** Armazenamento no banco do tempo que cada pedido levou para ser feito.
 
 ---
+## Como Executar o Projeto
+
+1. **Configurar o Banco de Dados:**
+   - Execute o script SQL localizado em `src/main/resources/schema.sql` no seu servidor MySQL. Ele criará o banco `confeitaria_kds` e as tabelas necessárias, além de inserir dados de exemplo.
+   - Edite o arquivo `src/main/resources/database.properties` com as credenciais do seu banco de dados (usuário e senha).
+
+2. **Compilar e Executar via Maven:**
+   ```bash
+   mvn clean compile
+   mvn exec:java
+   ```
+
+## Estrutura de Pacotes
+
+- `com.kds.confeitaria.model`: Classes de entidade e enums (POO puro).
+- `com.kds.confeitaria.dao`: Classes de acesso a dados (JDBC).
+- `com.kds.confeitaria.service`: Lógica de negócio, fila de prioridades e regras do sistema.
+- `com.kds.confeitaria.controller`: Controladores das telas JavaFX.
+- `com.kds.confeitaria.util`: Utilitários (ex: conexão com o banco).
+- `src/main/resources/fxml`: Arquivos de layout da interface.
+- `src/main/resources/css`: Folhas de estilo (IHC).
+
 
 ## 📊 Arquitetura e Banco de Dados
 1.usuarios
