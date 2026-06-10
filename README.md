@@ -17,10 +17,11 @@ Substituir os comandas manuais e papeis de pedidos por uma tela digital intelige
 
 ## 🛠️ Tecnologias Utilizadas
 
-* **Linguagem:** Java (versão 17 ou superior)
-* **Interface Gráfica (IHC):** [Indique aqui: JavaFX / Swing / Thymeleaf]
+* **Linguagem:** Java versão 17
+* **Interface Gráfica (IHC):** JavaFX
 * **Banco de Dados:** MySQL
-* **Persistência/Drivers:** [Indique aqui: JDBC / Hibernate / JPA]
+* **Persistência/Drivers:** JDBC (Puro)
+* **Gerenciamento de Dependências:** Maven
 
 ---
 
