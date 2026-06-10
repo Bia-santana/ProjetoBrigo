@@ -1,0 +1,74 @@
+package com.kds.confeitaria.controller;
+
+import com.kds.confeitaria.util.ConexaoBD;
+import javafx.application.Platform;
+import javafx.fxml.FXML;
+import javafx.fxml.FXMLLoader;
+import javafx.fxml.Initializable;
+import javafx.scene.Parent;
+import javafx.scene.Scene;
+import javafx.scene.control.Label;
+import javafx.stage.Stage;
+
+import java.net.URL;
+import java.util.ResourceBundle;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * Controller do Menu Principal da aplicação.
+ * Gerencia a navegação entre a Tela Chef e a Tela Cliente.
+ */
+public class MenuPrincipalController implements Initializable {
+
+    @FXML private Label lblStatusBanco;
+
+    @Override
+    public void initialize(URL url, ResourceBundle rb) {
+        verificarBancoAsync();
+    }
+
+    /**
+     * Verifica a conexão com o banco de dados de forma assíncrona
+     * para não bloquear a thread da UI.
+     */
+    private void verificarBancoAsync() {
+        CompletableFuture.supplyAsync(ConexaoBD::testarConexao)
+                .thenAccept(conectado -> Platform.runLater(() -> {
+                    if (conectado) {
+                        lblStatusBanco.setText("✔ Conectado");
+                        lblStatusBanco.setStyle("-fx-text-fill: #81C784; -fx-font-size: 12px;");
+                    } else {
+                        lblStatusBanco.setText("✘ Sem conexão — verifique database.properties");
+                        lblStatusBanco.setStyle("-fx-text-fill: #EF5350; -fx-font-size: 12px;");
+                    }
+                }));
+    }
+
+    @FXML
+    private void abrirTelaChef() {
+        abrirTela("/fxml/TelaChef.fxml", "Brigo KDS — Tela Chef", 1100, 700);
+    }
+
+    @FXML
+    private void abrirTelaCliente() {
+        abrirTela("/fxml/TelaCliente.fxml", "Brigo KDS — Tela Cliente", 900, 650);
+    }
+
+    private void abrirTela(String fxmlPath, String titulo, double largura, double altura) {
+        try {
+            FXMLLoader loader = new FXMLLoader(getClass().getResource(fxmlPath));
+            Parent root = loader.load();
+
+            Stage stage = new Stage();
+            Scene scene = new Scene(root, largura, altura);
+            scene.getStylesheets().add(
+                    getClass().getResource("/css/kds-style.css").toExternalForm());
+
+            stage.setTitle(titulo);
+            stage.setScene(scene);
+            stage.show();
+        } catch (Exception e) {
+            throw new RuntimeException("Erro ao abrir tela: " + fxmlPath, e);
+        }
+    }
+}

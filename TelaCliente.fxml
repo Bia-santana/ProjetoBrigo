@@ -1,0 +1,292 @@
+package com.kds.confeitaria.controller;
+
+import com.kds.confeitaria.model.*;
+import com.kds.confeitaria.service.PedidoService;
+import javafx.animation.Animation;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
+import javafx.application.Platform;
+import javafx.fxml.FXML;
+import javafx.fxml.FXMLLoader;
+import javafx.fxml.Initializable;
+import javafx.geometry.Insets;
+import javafx.scene.Parent;
+import javafx.scene.Scene;
+import javafx.scene.control.*;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
+import javafx.scene.layout.VBox;
+import javafx.stage.Stage;
+import javafx.util.Duration;
+
+import java.net.URL;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.ResourceBundle;
+import java.util.stream.Collectors;
+
+/**
+ * Controller da Tela Chef (KDS).
+ *
+ * <p>Exibe os pedidos em três colunas (Pendente, Em Preparo, Pronto)
+ * e atualiza automaticamente a cada 15 segundos. Suporta filtro por
+ * área de produção (Fornos / Confeiteiros).</p>
+ */
+public class TelaChefController implements Initializable {
+
+    // ---- FXML ----
+    @FXML private VBox vboxPendente;
+    @FXML private VBox vboxPreparo;
+    @FXML private VBox vboxPronto;
+    @FXML private Label lblContPendente;
+    @FXML private Label lblContPreparo;
+    @FXML private Label lblContPronto;
+    @FXML private Label lblUltimaAtualizacao;
+    @FXML private ToggleButton toggleTodos;
+    @FXML private ToggleButton toggleFornos;
+    @FXML private ToggleButton toggleConfeiteiros;
+
+    // ---- Dependências ----
+    private final PedidoService pedidoService = new PedidoService();
+    private AreaProducao filtroAtual = null; // null = todos
+    private Timeline autoRefresh;
+
+    private static final DateTimeFormatter FMT_HORA = DateTimeFormatter.ofPattern("HH:mm");
+    private static final DateTimeFormatter FMT_TIMESTAMP = DateTimeFormatter.ofPattern("HH:mm:ss");
+
+    @Override
+    public void initialize(URL url, ResourceBundle rb) {
+        carregarPedidos();
+        iniciarAutoRefresh();
+    }
+
+    // ---- Carregamento de Dados ----
+
+    private void carregarPedidos() {
+        try {
+            List<Pedido> todos = pedidoService.getFilaPrioridade();
+
+            List<Pedido> pedidos = filtroAtual == null ? todos
+                    : todos.stream()
+                    .filter(p -> p.getItens().stream()
+                            .anyMatch(i -> i.getAreaProducao() == filtroAtual))
+                    .collect(Collectors.toList());
+
+            List<Pedido> pendentes = pedidos.stream()
+                    .filter(p -> p.getStatus() == StatusPedido.PENDENTE)
+                    .collect(Collectors.toList());
+            List<Pedido> emPreparo = pedidos.stream()
+                    .filter(p -> p.getStatus() == StatusPedido.EM_PREPARO)
+                    .collect(Collectors.toList());
+            List<Pedido> prontos = pedidos.stream()
+                    .filter(p -> p.getStatus() == StatusPedido.PRONTO)
+                    .collect(Collectors.toList());
+
+            Platform.runLater(() -> {
+                renderizarColuna(vboxPendente, pendentes);
+                renderizarColuna(vboxPreparo, emPreparo);
+                renderizarColuna(vboxPronto, prontos);
+
+                lblContPendente.setText("Pendentes: " + pendentes.size());
+                lblContPreparo.setText("Em Preparo: " + emPreparo.size());
+                lblContPronto.setText("Prontos: " + prontos.size());
+                lblUltimaAtualizacao.setText(
+                        "Atualizado às " + LocalDateTime.now().format(FMT_TIMESTAMP));
+            });
+        } catch (Exception e) {
+            Platform.runLater(() -> mostrarErro("Erro ao carregar pedidos", e.getMessage()));
+        }
+    }
+
+    private void renderizarColuna(VBox coluna, List<Pedido> pedidos) {
+        coluna.getChildren().clear();
+        for (Pedido p : pedidos) {
+            coluna.getChildren().add(criarCardPedido(p));
+        }
+    }
+
+    // ---- Criação de Cards ----
+
+    private VBox criarCardPedido(Pedido pedido) {
+        VBox card = new VBox(5);
+        card.getStyleClass().add("card-pedido");
+
+        // Aplica estilo visual de urgência/atraso
+        if (pedido.isAtrasado()) {
+            card.getStyleClass().add("card-atrasado");
+        } else if (pedido.isUrgente()) {
+            card.getStyleClass().add("card-urgente");
+        }
+
+        // Linha 1: Número do pedido + horário limite
+        HBox linhaNumero = new HBox();
+        Label lblNumero = new Label("#" + pedido.getNumeroPedido());
+        lblNumero.getStyleClass().add("card-numero");
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        Label lblHorario = criarLabelHorario(pedido);
+
+        linhaNumero.getChildren().addAll(lblNumero, spacer, lblHorario);
+
+        // Linha 2: Nome do cliente
+        Label lblCliente = new Label("👤 " + pedido.getNomeCliente());
+        lblCliente.getStyleClass().add("card-cliente");
+
+        // Linha 3: Itens
+        String itensTexto = pedido.getItens().stream()
+                .map(ItemPedido::toString)
+                .collect(Collectors.joining("\n"));
+        Label lblItens = new Label(itensTexto);
+        lblItens.getStyleClass().add("card-itens");
+
+        card.getChildren().addAll(linhaNumero, lblCliente, lblItens);
+
+        // Observações (se houver)
+        if (pedido.getObservacoes() != null && !pedido.getObservacoes().isBlank()) {
+            Label lblObs = new Label("⚠ " + pedido.getObservacoes());
+            lblObs.getStyleClass().add("card-obs");
+            card.getChildren().add(lblObs);
+        }
+
+        // Separador + Botões de ação
+        Separator sep = new Separator();
+        sep.setStyle("-fx-padding: 2 0;");
+
+        HBox botoes = criarBotoesCard(pedido);
+        card.getChildren().addAll(sep, botoes);
+
+        return card;
+    }
+
+    private Label criarLabelHorario(Pedido pedido) {
+        if (pedido.getHorarioLimite() == null) {
+            Label l = new Label("Sem prazo");
+            l.getStyleClass().addAll("card-horario", "card-horario-normal");
+            return l;
+        }
+        Long minutos = pedido.getMinutosRestantes();
+        String texto;
+        String estilo;
+
+        if (minutos < 0) {
+            texto = "⏰ ATRASADO " + Math.abs(minutos) + "min";
+            estilo = "card-horario-atrasado";
+        } else if (minutos < 30) {
+            texto = "⚡ " + pedido.getHorarioLimite().format(FMT_HORA) + " (" + minutos + "min)";
+            estilo = "card-horario-urgente";
+        } else {
+            texto = "🕐 " + pedido.getHorarioLimite().format(FMT_HORA);
+            estilo = "card-horario-normal";
+        }
+
+        Label l = new Label(texto);
+        l.getStyleClass().addAll("card-horario", estilo);
+        return l;
+    }
+
+    private HBox criarBotoesCard(Pedido pedido) {
+        HBox hbox = new HBox(6);
+        hbox.setPadding(new Insets(2, 0, 0, 0));
+
+        // Botão Avançar Status
+        if (pedido.getStatus().podeAvancar()) {
+            String labelAvancar = switch (pedido.getStatus()) {
+                case PENDENTE   -> "▶ Iniciar Preparo";
+                case EM_PREPARO -> "✔ Marcar Pronto";
+                case PRONTO     -> "📦 Entregar";
+                default         -> "Avançar";
+            };
+            Button btnAvancar = new Button(labelAvancar);
+            btnAvancar.getStyleClass().add("btn-avancar");
+            btnAvancar.setOnAction(e -> {
+                pedidoService.avancarStatus(pedido);
+                carregarPedidos();
+            });
+            hbox.getChildren().add(btnAvancar);
+        }
+
+        // Botão Cancelar
+        if (pedido.getStatus() != StatusPedido.ENTREGUE
+                && pedido.getStatus() != StatusPedido.CANCELADO) {
+            Button btnCancelar = new Button("✘");
+            btnCancelar.getStyleClass().add("btn-cancelar");
+            btnCancelar.setTooltip(new Tooltip("Cancelar pedido"));
+            btnCancelar.setOnAction(e -> {
+                TextInputDialog dialog = new TextInputDialog();
+                dialog.setTitle("Cancelar Pedido");
+                dialog.setHeaderText("Cancelar #" + pedido.getNumeroPedido());
+                dialog.setContentText("Motivo:");
+                dialog.showAndWait().ifPresent(motivo -> {
+                    pedidoService.cancelarPedido(pedido, motivo);
+                    carregarPedidos();
+                });
+            });
+            hbox.getChildren().add(btnCancelar);
+        }
+
+        return hbox;
+    }
+
+    // ---- Auto-Refresh ----
+
+    private void iniciarAutoRefresh() {
+        autoRefresh = new Timeline(
+                new KeyFrame(Duration.seconds(15), e -> carregarPedidos()));
+        autoRefresh.setCycleCount(Animation.INDEFINITE);
+        autoRefresh.play();
+    }
+
+    // ---- Filtros de Área ----
+
+    @FXML
+    private void filtrarArea() {
+        if (toggleFornos.isSelected()) {
+            filtroAtual = AreaProducao.FORNOS;
+        } else if (toggleConfeiteiros.isSelected()) {
+            filtroAtual = AreaProducao.CONFEITEIROS;
+        } else {
+            filtroAtual = null;
+        }
+        carregarPedidos();
+    }
+
+    // ---- Navegação ----
+
+    @FXML
+    private void abrirRelatorio() {
+        try {
+            FXMLLoader loader = new FXMLLoader(
+                    getClass().getResource("/fxml/TelaRelatorio.fxml"));
+            Parent root = loader.load();
+            Stage stage = new Stage();
+            Scene scene = new Scene(root, 800, 550);
+            scene.getStylesheets().add(
+                    getClass().getResource("/css/kds-style.css").toExternalForm());
+            stage.setTitle("Relatório de Desempenho");
+            stage.setScene(scene);
+            stage.show();
+        } catch (Exception e) {
+            mostrarErro("Erro ao abrir relatório", e.getMessage());
+        }
+    }
+
+    @FXML
+    private void voltarMenu() {
+        if (autoRefresh != null) autoRefresh.stop();
+        Stage stage = (Stage) vboxPendente.getScene().getWindow();
+        stage.close();
+    }
+
+    // ---- Utilitários ----
+
+    private void mostrarErro(String titulo, String mensagem) {
+        Alert alert = new Alert(Alert.AlertType.ERROR);
+        alert.setTitle(titulo);
+        alert.setContentText(mensagem);
+        alert.showAndWait();
+    }
+}

@@ -1,0 +1,130 @@
+package com.kds.confeitaria.controller;
+
+import com.kds.confeitaria.service.PedidoService;
+import javafx.beans.property.SimpleStringProperty;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.fxml.FXML;
+import javafx.fxml.Initializable;
+import javafx.scene.control.*;
+import javafx.stage.Stage;
+
+import java.math.BigDecimal;
+import java.net.URL;
+import java.text.NumberFormat;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.List;
+import java.util.Locale;
+import java.util.ResourceBundle;
+
+/**
+ * Controller da Tela de Relatório de Desempenho.
+ *
+ * <p>Exibe dados agregados por dia: total de pedidos, tempo médio de preparo
+ * e faturamento total no período selecionado.</p>
+ */
+public class TelaRelatorioController implements Initializable {
+
+    @FXML private DatePicker dataPicker;
+    @FXML private DatePicker dataPickerFim;
+    @FXML private TableView<Object[]> tabelaRelatorio;
+    @FXML private TableColumn<Object[], String> colData;
+    @FXML private TableColumn<Object[], String> colTotal;
+    @FXML private TableColumn<Object[], String> colMedia;
+    @FXML private TableColumn<Object[], String> colMin;
+    @FXML private TableColumn<Object[], String> colMax;
+    @FXML private TableColumn<Object[], String> colFaturamento;
+    @FXML private Label lblTotalPedidos;
+    @FXML private Label lblMediaPreparo;
+    @FXML private Label lblFaturamento;
+
+    private final PedidoService pedidoService = new PedidoService();
+    private static final NumberFormat FMT_MOEDA =
+            NumberFormat.getCurrencyInstance(new Locale("pt", "BR"));
+
+    @Override
+    public void initialize(URL url, ResourceBundle rb) {
+        // Define período padrão: últimos 7 dias
+        dataPickerFim.setValue(LocalDate.now());
+        dataPicker.setValue(LocalDate.now().minusDays(7));
+
+        configurarColunas();
+        gerarRelatorio();
+    }
+
+    private void configurarColunas() {
+        colData.setCellValueFactory(c ->
+                new SimpleStringProperty(c.getValue()[0] != null ? c.getValue()[0].toString() : "—"));
+        colTotal.setCellValueFactory(c ->
+                new SimpleStringProperty(c.getValue()[1] != null ? c.getValue()[1].toString() : "0"));
+        colMedia.setCellValueFactory(c ->
+                new SimpleStringProperty(c.getValue()[2] != null
+                        ? String.format("%.1f", (Double) c.getValue()[2]) : "—"));
+        colMin.setCellValueFactory(c ->
+                new SimpleStringProperty(c.getValue()[3] != null ? c.getValue()[3].toString() : "—"));
+        colMax.setCellValueFactory(c ->
+                new SimpleStringProperty(c.getValue()[4] != null ? c.getValue()[4].toString() : "—"));
+        colFaturamento.setCellValueFactory(c ->
+                new SimpleStringProperty(c.getValue()[5] != null
+                        ? FMT_MOEDA.format((BigDecimal) c.getValue()[5]) : "R$ 0,00"));
+    }
+
+    @FXML
+    private void gerarRelatorio() {
+        LocalDate inicio = dataPicker.getValue();
+        LocalDate fim = dataPickerFim.getValue();
+
+        if (inicio == null || fim == null) {
+            Alert a = new Alert(Alert.AlertType.WARNING);
+            a.setTitle("Período inválido");
+            a.setContentText("Selecione as datas de início e fim do período.");
+            a.showAndWait();
+            return;
+        }
+
+        if (inicio.isAfter(fim)) {
+            Alert a = new Alert(Alert.AlertType.WARNING);
+            a.setTitle("Período inválido");
+            a.setContentText("A data de início deve ser anterior à data de fim.");
+            a.showAndWait();
+            return;
+        }
+
+        try {
+            List<Object[]> dados = pedidoService.getRelatorioDesempenho(
+                    LocalDateTime.of(inicio, LocalTime.MIN),
+                    LocalDateTime.of(fim, LocalTime.MAX));
+
+            ObservableList<Object[]> items = FXCollections.observableArrayList(dados);
+            tabelaRelatorio.setItems(items);
+
+            // Calcula totais para o resumo
+            int totalPedidos = dados.stream()
+                    .mapToInt(r -> (Integer) r[1]).sum();
+            double somaMedia = dados.stream()
+                    .mapToDouble(r -> (Double) r[2]).sum();
+            double mediaGeral = dados.isEmpty() ? 0 : somaMedia / dados.size();
+            BigDecimal faturamentoTotal = dados.stream()
+                    .map(r -> r[5] != null ? (BigDecimal) r[5] : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            lblTotalPedidos.setText(String.valueOf(totalPedidos));
+            lblMediaPreparo.setText(String.format("%.1f min", mediaGeral));
+            lblFaturamento.setText(FMT_MOEDA.format(faturamentoTotal));
+
+        } catch (Exception e) {
+            Alert a = new Alert(Alert.AlertType.ERROR);
+            a.setTitle("Erro ao gerar relatório");
+            a.setContentText(e.getMessage());
+            a.showAndWait();
+        }
+    }
+
+    @FXML
+    private void fechar() {
+        Stage stage = (Stage) tabelaRelatorio.getScene().getWindow();
+        stage.close();
+    }
+}

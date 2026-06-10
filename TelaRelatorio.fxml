@@ -1,0 +1,304 @@
+package com.kds.confeitaria.controller;
+
+import com.kds.confeitaria.model.*;
+import com.kds.confeitaria.service.CardapioService;
+import com.kds.confeitaria.service.PedidoService;
+import javafx.fxml.FXML;
+import javafx.fxml.Initializable;
+import javafx.geometry.Insets;
+import javafx.scene.control.*;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
+import javafx.scene.layout.VBox;
+import javafx.stage.Stage;
+
+import java.math.BigDecimal;
+import java.net.URL;
+import java.text.NumberFormat;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.ResourceBundle;
+
+/**
+ * Controller da Tela Cliente.
+ *
+ * <p>Exibe o cardápio completo e permite ao atendente registrar
+ * um novo pedido com itens, observações e forma de pagamento.</p>
+ */
+public class TelaClienteController implements Initializable {
+
+    // ---- FXML ----
+    @FXML private VBox vboxCardapio;
+    @FXML private VBox vboxItensPedido;
+    @FXML private TextField campoBusca;
+    @FXML private TextField campoNomeCliente;
+    @FXML private TextField campoHorarioLimite;
+    @FXML private TextArea campoObservacoes;
+    @FXML private Label lblValorTotal;
+    @FXML private ComboBox<FormaPagamento> comboFormaPagamento;
+
+    // ---- Estado ----
+    private final CardapioService cardapioService = new CardapioService();
+    private final PedidoService pedidoService = new PedidoService();
+    private List<Produto> todosProdutos = new ArrayList<>();
+    private final List<ItemPedido> itensPedido = new ArrayList<>();
+
+    private static final NumberFormat FMT_MOEDA =
+            NumberFormat.getCurrencyInstance(new Locale("pt", "BR"));
+    private static final DateTimeFormatter FMT_HORA =
+            DateTimeFormatter.ofPattern("HH:mm");
+
+    @Override
+    public void initialize(URL url, ResourceBundle rb) {
+        comboFormaPagamento.getItems().addAll(FormaPagamento.values());
+        comboFormaPagamento.setValue(FormaPagamento.PIX);
+        carregarCardapio();
+    }
+
+    // ---- Cardápio ----
+
+    private void carregarCardapio() {
+        try {
+            todosProdutos = cardapioService.getProdutosAtivos();
+            renderizarCardapio(todosProdutos);
+        } catch (Exception e) {
+            mostrarErro("Erro ao carregar cardápio", e.getMessage());
+        }
+    }
+
+    private void renderizarCardapio(List<Produto> produtos) {
+        vboxCardapio.getChildren().clear();
+        String categoriaAtual = "";
+
+        for (Produto p : produtos) {
+            String nomeCategoria = p.getCategoria() != null
+                    ? p.getCategoria().getNome() : "Outros";
+
+            // Cabeçalho de categoria
+            if (!nomeCategoria.equals(categoriaAtual)) {
+                categoriaAtual = nomeCategoria;
+                Label lblCat = new Label("— " + nomeCategoria + " —");
+                lblCat.setStyle("-fx-font-size: 12px; -fx-font-weight: bold; " +
+                        "-fx-text-fill: #F48FB1; -fx-padding: 8 0 2 0;");
+                vboxCardapio.getChildren().add(lblCat);
+            }
+
+            vboxCardapio.getChildren().add(criarItemCardapio(p));
+        }
+    }
+
+    private HBox criarItemCardapio(Produto produto) {
+        HBox item = new HBox(10);
+        item.getStyleClass().add("item-cardapio");
+        item.setPadding(new Insets(8, 12, 8, 12));
+
+        VBox info = new VBox(2);
+        Label lblNome = new Label(produto.getNome());
+        lblNome.setStyle("-fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: #212121;");
+        Label lblDesc = new Label(produto.getDescricao() != null ? produto.getDescricao() : "");
+        lblDesc.setStyle("-fx-font-size: 11px; -fx-text-fill: #616161;");
+        info.getChildren().addAll(lblNome, lblDesc);
+        HBox.setHgrow(info, Priority.ALWAYS);
+
+        Label lblPreco = new Label(FMT_MOEDA.format(produto.getPreco()));
+        lblPreco.setStyle("-fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: #388E3C;");
+
+        Button btnAdd = new Button("+");
+        btnAdd.setStyle("-fx-background-color: #F48FB1; -fx-font-weight: bold; " +
+                "-fx-font-size: 14px; -fx-min-width: 32; -fx-cursor: hand;");
+        btnAdd.setOnAction(e -> adicionarAoPedido(produto));
+
+        item.getChildren().addAll(info, lblPreco, btnAdd);
+        return item;
+    }
+
+    @FXML
+    private void filtrarCardapio() {
+        String termo = campoBusca.getText().toLowerCase().trim();
+        if (termo.isEmpty()) {
+            renderizarCardapio(todosProdutos);
+        } else {
+            List<Produto> filtrados = todosProdutos.stream()
+                    .filter(p -> p.getNome().toLowerCase().contains(termo)
+                            || (p.getDescricao() != null
+                            && p.getDescricao().toLowerCase().contains(termo)))
+                    .toList();
+            renderizarCardapio(filtrados);
+        }
+    }
+
+    // ---- Gerenciamento do Pedido ----
+
+    private void adicionarAoPedido(Produto produto) {
+        // Verifica se o produto já está no pedido
+        for (ItemPedido existente : itensPedido) {
+            if (existente.getProduto().getId() == produto.getId()) {
+                existente.setQuantidade(existente.getQuantidade() + 1);
+                atualizarPainelPedido();
+                return;
+            }
+        }
+        // Solicita observação para o item
+        TextInputDialog dialog = new TextInputDialog();
+        dialog.setTitle("Observação");
+        dialog.setHeaderText("Adicionar: " + produto.getNome());
+        dialog.setContentText("Observação (ex: Sem lactose):");
+        String obs = dialog.showAndWait().orElse("");
+
+        itensPedido.add(new ItemPedido(produto, 1, obs.isBlank() ? null : obs));
+        atualizarPainelPedido();
+    }
+
+    private void atualizarPainelPedido() {
+        vboxItensPedido.getChildren().clear();
+        BigDecimal total = BigDecimal.ZERO;
+
+        for (ItemPedido item : itensPedido) {
+            HBox linha = new HBox(6);
+            linha.setPadding(new Insets(4, 6, 4, 6));
+            linha.setStyle("-fx-background-color: #FFFFFF; -fx-border-radius: 4; " +
+                    "-fx-background-radius: 4; -fx-border-color: #E0E0E0;");
+
+            // Controles de quantidade
+            Button btnMenos = new Button("−");
+            btnMenos.setStyle("-fx-min-width: 24; -fx-cursor: hand;");
+            btnMenos.setOnAction(e -> {
+                if (item.getQuantidade() > 1) {
+                    item.setQuantidade(item.getQuantidade() - 1);
+                } else {
+                    itensPedido.remove(item);
+                }
+                atualizarPainelPedido();
+            });
+
+            Label lblQtd = new Label(String.valueOf(item.getQuantidade()));
+            lblQtd.setStyle("-fx-font-weight: bold; -fx-min-width: 20; -fx-alignment: CENTER;");
+
+            Button btnMais = new Button("+");
+            btnMais.setStyle("-fx-min-width: 24; -fx-cursor: hand;");
+            btnMais.setOnAction(e -> {
+                item.setQuantidade(item.getQuantidade() + 1);
+                atualizarPainelPedido();
+            });
+
+            // Nome e observação
+            VBox info = new VBox(1);
+            Label lblNome = new Label(item.getProduto().getNome());
+            lblNome.setStyle("-fx-font-size: 12px; -fx-font-weight: bold;");
+            info.getChildren().add(lblNome);
+            if (item.getObservacao() != null && !item.getObservacao().isBlank()) {
+                Label lblObs = new Label("⚠ " + item.getObservacao());
+                lblObs.setStyle("-fx-font-size: 10px; -fx-text-fill: #E53935;");
+                info.getChildren().add(lblObs);
+            }
+            HBox.setHgrow(info, Priority.ALWAYS);
+
+            // Subtotal
+            Label lblSub = new Label(FMT_MOEDA.format(item.getSubtotal()));
+            lblSub.setStyle("-fx-font-size: 12px; -fx-text-fill: #388E3C;");
+
+            linha.getChildren().addAll(btnMenos, lblQtd, btnMais, info, lblSub);
+            vboxItensPedido.getChildren().add(linha);
+
+            total = total.add(item.getSubtotal());
+        }
+
+        lblValorTotal.setText(FMT_MOEDA.format(total));
+    }
+
+    @FXML
+    private void limparPedido() {
+        itensPedido.clear();
+        campoNomeCliente.clear();
+        campoHorarioLimite.clear();
+        campoObservacoes.clear();
+        comboFormaPagamento.setValue(FormaPagamento.PIX);
+        atualizarPainelPedido();
+    }
+
+    @FXML
+    private void confirmarPedido() {
+        // Validações
+        if (campoNomeCliente.getText().isBlank()) {
+            mostrarAviso("Campo obrigatório", "Informe o nome do cliente.");
+            return;
+        }
+        if (itensPedido.isEmpty()) {
+            mostrarAviso("Pedido vazio", "Adicione ao menos um item ao pedido.");
+            return;
+        }
+
+        // Horário limite (opcional)
+        LocalDateTime horarioLimite = null;
+        String horarioTexto = campoHorarioLimite.getText().trim();
+        if (!horarioTexto.isBlank()) {
+            try {
+                LocalTime hora = LocalTime.parse(horarioTexto, FMT_HORA);
+                horarioLimite = LocalDateTime.of(LocalDate.now(), hora);
+                // Se o horário já passou hoje, assume amanhã
+                if (horarioLimite.isBefore(LocalDateTime.now())) {
+                    horarioLimite = horarioLimite.plusDays(1);
+                }
+            } catch (DateTimeParseException ex) {
+                mostrarAviso("Formato inválido", "Use o formato HH:mm para o horário limite.");
+                return;
+            }
+        }
+
+        try {
+            Pedido pedido = pedidoService.criarPedido(
+                    campoNomeCliente.getText(),
+                    campoObservacoes.getText(),
+                    comboFormaPagamento.getValue(),
+                    horarioLimite,
+                    new ArrayList<>(itensPedido)
+            );
+
+            mostrarSucesso("Pedido Confirmado!",
+                    "Pedido #" + pedido.getNumeroPedido() + " registrado com sucesso!\n" +
+                            "Total: " + FMT_MOEDA.format(pedido.getValorTotal()));
+            limparPedido();
+
+        } catch (Exception e) {
+            mostrarErro("Erro ao confirmar pedido", e.getMessage());
+        }
+    }
+
+    // ---- Navegação ----
+
+    @FXML
+    private void voltarMenu() {
+        Stage stage = (Stage) vboxCardapio.getScene().getWindow();
+        stage.close();
+    }
+
+    // ---- Utilitários ----
+
+    private void mostrarErro(String titulo, String msg) {
+        Alert a = new Alert(Alert.AlertType.ERROR);
+        a.setTitle(titulo);
+        a.setContentText(msg);
+        a.showAndWait();
+    }
+
+    private void mostrarAviso(String titulo, String msg) {
+        Alert a = new Alert(Alert.AlertType.WARNING);
+        a.setTitle(titulo);
+        a.setContentText(msg);
+        a.showAndWait();
+    }
+
+    private void mostrarSucesso(String titulo, String msg) {
+        Alert a = new Alert(Alert.AlertType.INFORMATION);
+        a.setTitle(titulo);
+        a.setContentText(msg);
+        a.showAndWait();
+    }
+}
